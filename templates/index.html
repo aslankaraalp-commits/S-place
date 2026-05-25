@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Online Blok Alanı</title>
+    <style>
+        body { 
+            background-color: #121212; 
+            color: #ffffff; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { margin-bottom: 10px; font-weight: 300; }
+        
+        .palette { 
+            margin-bottom: 20px; 
+            display: flex; 
+            gap: 15px; 
+            background: #222;
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        
+        .color-btn { 
+            width: 45px; 
+            height: 45px; 
+            border: 2px solid transparent; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            transition: transform 0.2s, border-color 0.2s; 
+        }
+        
+        .color-btn:hover { transform: scale(1.15); }
+        .color-btn.active { border-color: #ffffff; transform: scale(1.15); }
+
+        canvas { 
+            border: 1px solid #333; 
+            background-color: #ffffff;
+            cursor: crosshair; 
+            box-shadow: 0 0 30px rgba(0,0,0,0.8); 
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Ortak Tuval</h1>
+    
+    <div class="palette" id="palette">
+        <!-- Modern RGB ve temel renk paleti -->
+        <button class="color-btn active" style="background-color: #ff0000;" onclick="setColor('#ff0000', this)"></button>
+        <button class="color-btn" style="background-color: #00ff00;" onclick="setColor('#00ff00', this)"></button>
+        <button class="color-btn" style="background-color: #0000ff;" onclick="setColor('#0000ff', this)"></button>
+        <button class="color-btn" style="background-color: #ffff00;" onclick="setColor('#ffff00', this)"></button>
+        <button class="color-btn" style="background-color: #000000;" onclick="setColor('#000000', this)"></button>
+        <button class="color-btn" style="background-color: #ffffff; border: 1px solid #ccc;" onclick="setColor('#ffffff', this)"></button>
+    </div>
+
+    <canvas id="gameCanvas" width="600" height="600"></canvas>
+
+    <!-- Socket.IO İstemci Kütüphanesi -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        const socket = io();
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        const gridSize = 50;
+        const cellSize = canvas.width / gridSize;
+        let currentColor = '#ff0000'; // Varsayılan renk Kırmızı
+
+        function setColor(color, element) {
+            currentColor = color;
+            // Aktif buton efektini güncelle
+            document.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
+            element.classList.add('active');
+        }
+
+        // Tüm gridi baştan çizme fonksiyonu
+        function drawGrid(gridData) {
+            for (let y = 0; y < gridSize; y++) {
+                for (let x = 0; x < gridSize; x++) {
+                    ctx.fillStyle = gridData[y][x];
+                    ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                }
+            }
+            drawGridLines();
+        }
+
+        // Blokların belirgin olması için ince çizgiler ekleyelim
+        function drawGridLines() {
+            ctx.strokeStyle = "rgba(0, 0, 0, 0.1)";
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= canvas.width; i += cellSize) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke();
+            }
+        }
+
+        // Sunucuya bağlandığında mevcut gridi iste
+        socket.on('connect', () => {
+            socket.emit('get_grid');
+        });
+
+        // Sunucudan gelen grid verisini ekrana yükle
+        socket.on('load_grid', (gridData) => {
+            drawGrid(gridData);
+        });
+
+        // Başka bir oyuncu blok koyduğunda sadece o bloğu güncelle
+        socket.on('update_block', (data) => {
+            ctx.fillStyle = data.color;
+            ctx.fillRect(data.x * cellSize, data.y * cellSize, cellSize, cellSize);
+            drawGridLines();
+        });
+
+        // Tuvale tıklandığında blok yerleştir
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            // Tıklanan pikselin hangi bloğa denk geldiğini hesapla
+            const x = Math.floor((e.clientX - rect.left) / cellSize);
+            const y = Math.floor((e.clientY - rect.top) / cellSize);
+            
+            // Beklemeden kendi ekranında anında göster (Optimistic Update)
+            ctx.fillStyle = currentColor;
+            ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+            drawGridLines();
+            
+            // Değişikliği sunucuya bildir
+            socket.emit('place_block', {x: x, y: y, color: currentColor});
+        });
+    </script>
+</body>
+</html>
